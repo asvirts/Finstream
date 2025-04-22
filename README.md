@@ -87,4 +87,4 @@ Contributions are welcome! Please open issues or submit pull requests for bug fi
 
 ## License
 
-MIT © 2025 Your Company Name
+MIT © 2025 Andrew Virts
