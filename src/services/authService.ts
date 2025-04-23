@@ -1,4 +1,4 @@
-import { apiPost, apiGet, setAuthToken, clearAuthToken } from "./api"
+import { supabase } from "./supabase"
 import { User } from "../types"
 
 interface LoginCredentials {
@@ -19,141 +19,105 @@ interface AuthResponse {
   user: User
 }
 
-/**
- * Authenticate user with email and password
- */
-export const login = async (
-  credentials: LoginCredentials
-): Promise<AuthResponse> => {
-  try {
-    const response = await apiPost<AuthResponse>("/auth/login", credentials)
-
-    // Store the token
-    await setAuthToken(response.token)
-
-    return response
-  } catch (error) {
-    console.error("Login error:", error)
-    throw error
-  }
+// Authenticate user with email and password
+export const login = async ({
+  email,
+  password,
+}: LoginCredentials): Promise<AuthResponse> => {
+  const { data: session, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+  if (error || !session) throw error
+  const user = session.user as User
+  return { token: session.access_token, user }
 }
 
-/**
- * Register a new user
- */
-export const register = async (data: RegisterData): Promise<AuthResponse> => {
-  try {
-    const response = await apiPost<AuthResponse>("/auth/register", data)
-
-    // Store the token
-    await setAuthToken(response.token)
-
-    return response
-  } catch (error) {
-    console.error("Registration error:", error)
-    throw error
-  }
+// Register a new user
+export const register = async ({
+  email,
+  password,
+  firstName,
+  lastName,
+  businessName,
+}: RegisterData): Promise<AuthResponse> => {
+  const { data: session, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { firstName, lastName, businessName } },
+  })
+  if (error || !session) throw error
+  const user = session.user as User
+  return { token: session.access_token, user }
 }
 
-/**
- * Get the current authenticated user
- */
-export const getCurrentUser = async (): Promise<User> => {
-  try {
-    return await apiGet<User>("/auth/me")
-  } catch (error) {
-    console.error("Get current user error:", error)
-    throw error
-  }
+// Get the current authenticated user
+export const getCurrentUser = (): User | null => {
+  return supabase.auth
+    .getUser()
+    .then(({ data: { user } }) => user as User | null)
 }
 
-/**
- * Log out the current user
- */
+// Log out the current user
 export const logout = async (): Promise<void> => {
-  try {
-    // Make an API call to invalidate the token on the server (optional)
-    await apiPost("/auth/logout")
-  } catch (error) {
-    console.error("Logout error:", error)
-  } finally {
-    // Clear the token from storage
-    await clearAuthToken()
-  }
+  const { error } = await supabase.auth.signOut()
+  if (error) throw error
 }
 
-/**
- * Complete the onboarding process for the user
- */
-export const completeOnboarding = async (data: any): Promise<User> => {
-  try {
-    return await apiPost<User>("/auth/onboarding", data)
-  } catch (error) {
-    console.error("Complete onboarding error:", error)
-    throw error
-  }
+// Complete the onboarding process for the user
+export const completeOnboarding = async (
+  data: Partial<User>
+): Promise<User> => {
+  const user = (await supabase.auth.getUser()).data.user
+  const { data: updated, error } = await supabase
+    .from<User>("users")
+    .update({ ...data, isOnboarded: true })
+    .eq("id", user?.id)
+    .single()
+  if (error || !updated) throw error
+  return updated
 }
 
-/**
- * Request a password reset email
- */
+// Request a password reset email
 export const forgotPassword = async (
   email: string
 ): Promise<{ message: string }> => {
-  try {
-    return await apiPost<{ message: string }>("/auth/forgot-password", {
-      email
-    })
-  } catch (error) {
-    console.error("Forgot password error:", error)
-    throw error
-  }
+  const { error } = await supabase.auth.resetPasswordForEmail(email)
+  if (error) throw error
+  return { message: "Password reset email sent" }
 }
 
-/**
- * Reset password with token
- */
+// Reset password with token
 export const resetPassword = async (
   token: string,
   newPassword: string
 ): Promise<{ message: string }> => {
-  try {
-    return await apiPost<{ message: string }>("/auth/reset-password", {
-      token,
-      newPassword
-    })
-  } catch (error) {
-    console.error("Reset password error:", error)
-    throw error
-  }
+  const { data, error } = await supabase.auth.updateUser(
+    {
+      password: newPassword,
+    },
+    { token }
+  )
+  if (error) throw error
+  return { message: "Password has been reset" }
 }
 
-/**
- * Change the current user's password
- */
+// Change the current user's password
 export const changePassword = async (
   currentPassword: string,
   newPassword: string
 ): Promise<{ message: string }> => {
-  try {
-    return await apiPost<{ message: string }>("/auth/change-password", {
-      currentPassword,
-      newPassword
-    })
-  } catch (error) {
-    console.error("Change password error:", error)
-    throw error
-  }
+  // Supabase does not verify current password; rely on session
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+  return { message: "Password changed" }
 }
 
-/**
- * Update the current user's profile
- */
+// Update the current user's profile
 export const updateProfile = async (data: Partial<User>): Promise<User> => {
-  try {
-    return await apiPost<User>("/auth/profile", data)
-  } catch (error) {
-    console.error("Update profile error:", error)
-    throw error
-  }
+  const { data: updated, error } = await supabase.auth.updateUser({
+    data: { ...data },
+  })
+  if (error || !updated.user) throw error
+  return updated.user as User
 }

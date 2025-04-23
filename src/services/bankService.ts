@@ -1,201 +1,125 @@
-import { apiGet, apiPost, apiPut, apiDelete } from "./api"
+import { supabase } from "./supabase"
 import { BankAccount, BankTransaction } from "../types"
 
-/**
- * Get all connected bank accounts
- */
+// Get all connected bank accounts
 export const getBankAccounts = async (): Promise<BankAccount[]> => {
-  try {
-    return await apiGet<BankAccount[]>("/bank/accounts")
-  } catch (error) {
-    console.error("Get bank accounts error:", error)
-    throw error
-  }
+  const { data, error } = await supabase
+    .from<BankAccount>("bank_accounts")
+    .select("*")
+  if (error) throw error
+  return data || []
 }
 
-/**
- * Get a specific bank account by ID
- */
+// Get a specific bank account by ID
 export const getBankAccountById = async (id: string): Promise<BankAccount> => {
-  try {
-    return await apiGet<BankAccount>(`/bank/accounts/${id}`)
-  } catch (error) {
-    console.error(`Get bank account ${id} error:`, error)
-    throw error
-  }
+  const { data, error } = await supabase
+    .from<BankAccount>("bank_accounts")
+    .select("*")
+    .eq("id", id)
+    .single()
+  if (error) throw error
+  return data!
 }
 
-/**
- * Delete a bank account connection
- */
+// Delete a bank account connection
 export const deleteBankAccount = async (id: string): Promise<void> => {
-  try {
-    await apiDelete(`/bank/accounts/${id}`)
-  } catch (error) {
-    console.error(`Delete bank account ${id} error:`, error)
-    throw error
-  }
+  const { error } = await supabase
+    .from<BankAccount>("bank_accounts")
+    .delete()
+    .eq("id", id)
+  if (error) throw error
 }
 
-/**
- * Get all transactions for a bank account
- */
+// Get all transactions for a bank account
 export const getBankTransactions = async (
   bankAccountId: string,
-  params?: {
-    startDate?: string
-    endDate?: string
-    matched?: boolean
-  }
+  params?: { startDate?: string; endDate?: string; matched?: boolean }
 ): Promise<BankTransaction[]> => {
-  try {
-    return await apiGet<BankTransaction[]>(
-      `/bank/accounts/${bankAccountId}/transactions`,
-      {
-        params
-      }
-    )
-  } catch (error) {
-    console.error(
-      `Get bank transactions for account ${bankAccountId} error:`,
-      error
-    )
-    throw error
-  }
+  let query = supabase
+    .from<BankTransaction>("bank_transactions")
+    .select("*")
+    .eq("bankAccountId", bankAccountId)
+  if (params?.startDate) query = query.gte("date", params.startDate)
+  if (params?.endDate) query = query.lte("date", params.endDate)
+  if (params?.matched !== undefined)
+    query = query.eq("isMatched", params.matched)
+  const { data, error } = await query
+  if (error) throw error
+  return data || []
 }
 
-/**
- * Create a link token for Plaid Link integration
- */
+// Create a link token for Plaid Link integration via Edge Function
 export const createLinkToken = async (): Promise<{ linkToken: string }> => {
-  try {
-    return await apiPost<{ linkToken: string }>("/bank/create-link-token")
-  } catch (error) {
-    console.error("Create link token error:", error)
-    throw error
-  }
+  const { data, error } = await supabase.functions.invoke("create-link-token")
+  if (error) throw error
+  return data as { linkToken: string }
 }
 
-/**
- * Exchange public token from Plaid for access token and link bank account
- */
+// Exchange public token from Plaid for access token and link bank account
 export const exchangePublicToken = async (
   publicToken: string,
-  metadata: {
-    institution: {
-      name: string
-      institution_id: string
-    }
-    accounts: Array<{
-      id: string
-      name: string
-      type: string
-      subtype: string
-      mask: string
-    }>
-  }
+  metadata: any
 ): Promise<BankAccount[]> => {
-  try {
-    return await apiPost<BankAccount[]>("/bank/exchange-public-token", {
-      publicToken,
-      metadata
-    })
-  } catch (error) {
-    console.error("Exchange public token error:", error)
-    throw error
-  }
+  const { data, error } = await supabase.functions.invoke(
+    "exchange-public-token",
+    { publicToken, metadata }
+  )
+  if (error) throw error
+  return data as BankAccount[]
 }
 
-/**
- * Sync bank account data to refresh transactions and balance
- */
+// Sync bank account data (transactions & balance) via Edge Function
 export const syncBankAccount = async (
   bankAccountId: string
-): Promise<{
-  bankAccount: BankAccount
-  transactions: BankTransaction[]
-  added: number
-  modified: number
-  removed: number
-}> => {
-  try {
-    return await apiPost<{
-      bankAccount: BankAccount
-      transactions: BankTransaction[]
-      added: number
-      modified: number
-      removed: number
-    }>(`/bank/accounts/${bankAccountId}/sync`)
-  } catch (error) {
-    console.error(`Sync bank account ${bankAccountId} error:`, error)
-    throw error
-  }
+): Promise<{ bankAccount: BankAccount; transactions: BankTransaction[] }> => {
+  const { data, error } = await supabase.functions.invoke("sync-bank-account", {
+    bankAccountId,
+  })
+  if (error) throw error
+  return data as { bankAccount: BankAccount; transactions: BankTransaction[] }
 }
 
-/**
- * Match a bank transaction to an internal transaction
- */
+// Match a bank transaction to an internal transaction
 export const matchBankTransaction = async (
   bankTransactionId: string,
   transactionId: string
 ): Promise<BankTransaction> => {
-  try {
-    return await apiPut<BankTransaction>(
-      `/bank/transactions/${bankTransactionId}/match`,
-      {
-        transactionId
-      }
-    )
-  } catch (error) {
-    console.error(`Match bank transaction ${bankTransactionId} error:`, error)
-    throw error
-  }
+  const { data, error } = await supabase
+    .from<BankTransaction>("bank_transactions")
+    .update({ transactionId, isMatched: true })
+    .eq("id", bankTransactionId)
+    .single()
+  if (error) throw error
+  return data!
 }
 
-/**
- * Unmatch a bank transaction from an internal transaction
- */
+// Unmatch a bank transaction from an internal transaction
 export const unmatchBankTransaction = async (
   bankTransactionId: string
 ): Promise<BankTransaction> => {
-  try {
-    return await apiPut<BankTransaction>(
-      `/bank/transactions/${bankTransactionId}/unmatch`,
-      {}
-    )
-  } catch (error) {
-    console.error(`Unmatch bank transaction ${bankTransactionId} error:`, error)
-    throw error
-  }
+  const { data, error } = await supabase
+    .from<BankTransaction>("bank_transactions")
+    .update({ transactionId: null, isMatched: false })
+    .eq("id", bankTransactionId)
+    .single()
+  if (error) throw error
+  return data!
 }
 
-/**
- * Create a new transaction from a bank transaction
- */
+// Create a new internal transaction from a bank transaction
 export const createTransactionFromBankTransaction = async (
   bankTransactionId: string,
-  data: {
-    description?: string
-    accountId: string
-  }
+  data: { description?: string; accountId: string }
 ): Promise<{ bankTransaction: BankTransaction; transactionId: string }> => {
-  try {
-    return await apiPost<{
-      bankTransaction: BankTransaction
-      transactionId: string
-    }>(`/bank/transactions/${bankTransactionId}/create-transaction`, data)
-  } catch (error) {
-    console.error(
-      `Create transaction from bank transaction ${bankTransactionId} error:`,
-      error
-    )
-    throw error
-  }
+  const { data: res, error } = await supabase.functions.invoke(
+    "create-transaction-from-bank",
+    { bankTransactionId, ...data }
+  )
+  if (error) throw error
+  return res as { bankTransaction: BankTransaction; transactionId: string }
 }
 
-/**
- * Get summary of bank account transaction matching status
- */
+// Get summary of bank account transaction matching status
 export const getBankAccountMatchingSummary = async (
   bankAccountId: string
 ): Promise<{
@@ -204,37 +128,27 @@ export const getBankAccountMatchingSummary = async (
   unmatched: number
   pending: number
 }> => {
-  try {
-    return await apiGet<{
-      total: number
-      matched: number
-      unmatched: number
-      pending: number
-    }>(`/bank/accounts/${bankAccountId}/matching-summary`)
-  } catch (error) {
-    console.error(
-      `Get bank account ${bankAccountId} matching summary error:`,
-      error
-    )
-    throw error
+  const { data, error } = await supabase.functions.invoke(
+    "bank-matching-summary",
+    { bankAccountId }
+  )
+  if (error) throw error
+  return data as {
+    total: number
+    matched: number
+    unmatched: number
+    pending: number
   }
 }
 
-/**
- * Update Plaid credentials if connection requires update
- */
+// Update Plaid connection via Edge Function
 export const updatePlaidConnection = async (
   bankAccountId: string
 ): Promise<{ linkToken: string }> => {
-  try {
-    return await apiPost<{ linkToken: string }>(
-      `/bank/accounts/${bankAccountId}/update-connection`
-    )
-  } catch (error) {
-    console.error(
-      `Update Plaid connection for bank account ${bankAccountId} error:`,
-      error
-    )
-    throw error
-  }
+  const { data, error } = await supabase.functions.invoke(
+    "update-plaid-connection",
+    { bankAccountId }
+  )
+  if (error) throw error
+  return data as { linkToken: string }
 }
